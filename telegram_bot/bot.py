@@ -8,7 +8,15 @@ import traceback
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandStart
-from aiogram.types import ErrorEvent, KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    ErrorEvent,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
@@ -19,6 +27,10 @@ AI_CHAT_BUTTON = "💬 AI bilan suhbat"
 PREMIUM_BUTTON = "⭐ Premium"
 PREMIUM_BUY_BUTTON = "💳 Premium sotib olish"
 PROFILE_BUTTON = "👤 Profilim"
+ADMIN_PANEL_TEXT = (
+    "👑 Admin panel\n\n"
+    "Admin boshqaruv paneliga xush kelibsiz."
+)
 MENU_OPTIONS = (
     AI_CHAT_BUTTON,
     "✍️ Matn yozish",
@@ -162,6 +174,44 @@ def premium_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def admin_keyboard() -> InlineKeyboardMarkup:
+    """Build owner-only admin controls; the user-facing menu is unchanged."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Yangilash",
+                    callback_data="admin:refresh",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✖️ Yopish",
+                    callback_data="admin:close",
+                )
+            ],
+        ]
+    )
+
+
+def is_admin_user(user_id: int | None, admin_id: int | None) -> bool:
+    """Fail closed unless a configured owner ID matches the Telegram sender."""
+    return admin_id is not None and user_id is not None and user_id == admin_id
+
+
+def parse_admin_id(value: str | None) -> int | None:
+    """Parse an optional ADMIN_ID without including its value in errors."""
+    if value is None or not value.strip():
+        return None
+    try:
+        admin_id = int(value.strip())
+    except ValueError:
+        raise SystemExit("ADMIN_ID must be a positive numeric Telegram user ID.") from None
+    if admin_id <= 0:
+        raise SystemExit("ADMIN_ID must be a positive numeric Telegram user ID.")
+    return admin_id
+
+
 def profile_text(user: object | None) -> str:
     """Format Telegram identity and clearly mark unavailable account metrics."""
     if user is None:
@@ -212,7 +262,11 @@ async def handle_update_error(event: ErrorEvent) -> bool:
     return True
 
 
-def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
+def build_dispatcher(
+    openai_client: AsyncOpenAI,
+    *secrets: str,
+    admin_id: int | None = None,
+) -> Dispatcher:
     """Register Smart Uz handlers and keep temporary history per user and chat."""
     dispatcher = Dispatcher()
     active_chats: set[tuple[int, int]] = set()
@@ -227,6 +281,48 @@ def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
         active_chats.discard(key)
         histories.pop(key, None)
         await message.answer(MENU_TEXT, reply_markup=main_menu_keyboard())
+
+    async def show_admin_panel(message: Message) -> None:
+        user_id = message.from_user.id if message.from_user else None
+        if not is_admin_user(user_id, admin_id):
+            await message.answer("⛔ Sizda admin panelga kirish huquqi yo‘q.")
+            return
+        await message.answer(
+            ADMIN_PANEL_TEXT,
+            reply_markup=admin_keyboard(),
+        )
+
+    async def handle_admin_callback(callback: CallbackQuery) -> None:
+        # Guard all admin callback data before taking any action.
+        if not is_admin_user(
+            callback.from_user.id if callback.from_user else None,
+            admin_id,
+        ):
+            await callback.answer(
+                "⛔ Sizga ruxsat berilmagan.",
+                show_alert=True,
+            )
+            return
+
+        if callback.data == "admin:refresh":
+            if callback.message:
+                await callback.message.edit_text(
+                    ADMIN_PANEL_TEXT,
+                    reply_markup=admin_keyboard(),
+                )
+            await callback.answer("Panel yangilandi.")
+        elif callback.data == "admin:close":
+            if callback.message:
+                await callback.message.edit_text(
+                    "Admin panel yopildi.",
+                    reply_markup=None,
+                )
+            await callback.answer()
+        else:
+            await callback.answer(
+                "Admin amali topilmadi.",
+                show_alert=True,
+            )
 
     async def handle_text(message: Message) -> None:
         text = message.text
@@ -356,7 +452,12 @@ def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
 
     dispatcher.message.register(show_main_menu, CommandStart())
     dispatcher.message.register(show_main_menu, Command("help"))
+    dispatcher.message.register(show_admin_panel, Command("admin"))
     dispatcher.message.register(handle_text, F.text)
+    dispatcher.callback_query.register(
+        handle_admin_callback,
+        F.data.startswith("admin:"),
+    )
     dispatcher.errors.register(handle_update_error)
     return dispatcher
 
@@ -382,7 +483,11 @@ def configure_logging(*secrets: str) -> None:
         logging.getLogger(logger_name).setLevel(logging.CRITICAL + 1)
 
 
-async def run_bot(telegram_token: str, openai_api_key: str) -> None:
+async def run_bot(
+    telegram_token: str,
+    openai_api_key: str,
+    admin_id: int | None,
+) -> None:
     """Run aiogram long polling with one reusable asynchronous OpenAI client."""
     async with AsyncOpenAI(
         api_key=openai_api_key,
@@ -390,7 +495,11 @@ async def run_bot(telegram_token: str, openai_api_key: str) -> None:
         max_retries=2,
     ) as openai_client:
         dispatcher = build_dispatcher(
-            openai_client, telegram_token, openai_api_key
+            openai_client,
+            telegram_token,
+            openai_api_key,
+            str(admin_id) if admin_id is not None else "",
+            admin_id=admin_id,
         )
         bot = Bot(token=telegram_token)
         await dispatcher.start_polling(bot)
@@ -400,6 +509,7 @@ def main() -> None:
     """Load credentials securely and start the polling bot."""
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     openai_api_key = os.environ.get("OPENAI_API_KEY")
+    admin_id_value = os.environ.get("ADMIN_ID")
     if not telegram_token or not openai_api_key:
         missing = [
             name
@@ -413,9 +523,12 @@ def main() -> None:
             f"Missing required Replit Secrets: {', '.join(missing)}."
         )
 
-    configure_logging(telegram_token, openai_api_key)
+    admin_id = parse_admin_id(admin_id_value)
+    configure_logging(telegram_token, openai_api_key, admin_id_value or "")
+    if admin_id is None:
+        logger.warning("ADMIN_ID is not configured; admin panel access is disabled.")
     logger.info("Starting Smart Uz with Telegram long polling.")
-    asyncio.run(run_bot(telegram_token, openai_api_key))
+    asyncio.run(run_bot(telegram_token, openai_api_key, admin_id))
 
 
 if __name__ == "__main__":
