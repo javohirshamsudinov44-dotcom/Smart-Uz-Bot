@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 HOME_BUTTON = "🏠 Bosh menyu"
 PROFILE_BACK_BUTTON = "⬅️ Orqaga"
 AI_CHAT_BUTTON = "💬 AI bilan suhbat"
+PREMIUM_BUTTON = "⭐ Premium"
+PREMIUM_BUY_BUTTON = "💳 Premium sotib olish"
 PROFILE_BUTTON = "👤 Profilim"
 MENU_OPTIONS = (
     AI_CHAT_BUTTON,
@@ -25,13 +27,25 @@ MENU_OPTIONS = (
     "📸 Rasm tahlili",
     "🎨 AI rasm yaratish",
     "💡 G‘oya va maslahatlar",
-    "⭐ Premium",
+    PREMIUM_BUTTON,
     PROFILE_BUTTON,
 )
 MENU_TEXT = "🤖 Smart Uz\nSizning aqlli AI yordamchingiz!"
 PREPARING_TEXT = (
     "Bu funksiya hozir tayyorlanmoqda. "
     "Tez orada foydalanishingiz mumkin!"
+)
+PREMIUM_PAGE_TEXT = (
+    "⭐ Smart Uz Premium\n"
+    "Joriy holatingiz: Free\n\n"
+    "⭐ Premium nima beradi?\n"
+    "Premium imkoniyatlari faollashtirilganda shu yerda ko‘rsatiladi.\n\n"
+    "💳 Premium tariflari\n"
+    "Tariflar va narxlar hali belgilanmagan."
+)
+PREMIUM_NOT_ACTIVE_TEXT = (
+    "Premium hozircha faollashtirilmagan. "
+    "Hozircha hech qanday to‘lov olinmaydi."
 )
 AI_SYSTEM_PROMPT = (
     "Siz Smart Uz nomli aqlli AI yordamchisiz. Odatiy holatda o‘zbek tilida "
@@ -135,6 +149,19 @@ def profile_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def premium_keyboard() -> ReplyKeyboardMarkup:
+    """Show Premium purchase placeholder and back navigation."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=PREMIUM_BUY_BUTTON)],
+            [KeyboardButton(text=PROFILE_BACK_BUTTON)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Premium bo‘limi",
+    )
+
+
 def profile_text(user: object | None) -> str:
     """Format Telegram identity and clearly mark unavailable account metrics."""
     if user is None:
@@ -217,6 +244,13 @@ def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
             await show_main_menu(message)
             return
 
+        if text == PREMIUM_BUY_BUTTON:
+            await message.answer(
+                PREMIUM_NOT_ACTIVE_TEXT,
+                reply_markup=premium_keyboard(),
+            )
+            return
+
         if text in MENU_OPTIONS:
             if text == AI_CHAT_BUTTON:
                 active_chats.add(key)
@@ -232,6 +266,13 @@ def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
                 await message.answer(
                     profile_text(message.from_user),
                     reply_markup=profile_keyboard(),
+                )
+            elif text == PREMIUM_BUTTON:
+                active_chats.discard(key)
+                histories.pop(key, None)
+                await message.answer(
+                    PREMIUM_PAGE_TEXT,
+                    reply_markup=premium_keyboard(),
                 )
             else:
                 active_chats.discard(key)
