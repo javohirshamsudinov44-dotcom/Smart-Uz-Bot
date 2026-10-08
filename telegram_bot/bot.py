@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 import traceback
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ChatAction
@@ -43,6 +44,24 @@ AI_ERROR_MESSAGE = (
 OPENAI_MODEL = "gpt-5.4-mini"
 MAX_HISTORY_MESSAGES = 20
 MAX_TELEGRAM_MESSAGE_LENGTH = 4000
+_URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_AUTH_HEADER_PATTERN = re.compile(
+    r"(?i)(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+"
+)
+_BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]+=*")
+_OPENAI_KEY_PATTERN = re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{8,}\b")
+
+
+def sanitize_diagnostic_text(text: str, *secrets: str) -> str:
+    """Remove credentials and URLs before writing external errors to logs."""
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "[REDACTED]")
+    text = _URL_PATTERN.sub("[URL REDACTED]", text)
+    text = _AUTH_HEADER_PATTERN.sub(r"\1[REDACTED]", text)
+    text = _BEARER_PATTERN.sub("Bearer [REDACTED]", text)
+    text = _OPENAI_KEY_PATTERN.sub("[REDACTED]", text)
+    return text[:500]
 
 
 class SecretRedactionFilter(logging.Filter):
@@ -53,20 +72,25 @@ class SecretRedactionFilter(logging.Filter):
         self.secrets = tuple(secret for secret in secrets if secret)
 
     def filter(self, record: logging.LogRecord) -> bool:
-        message = record.getMessage()
-        for secret in self.secrets:
-            message = message.replace(secret, "[REDACTED]")
-        if record.getMessage() != message:
+        original_message = record.getMessage()
+        message = sanitize_diagnostic_text(original_message, *self.secrets)
+        if original_message != message:
             record.msg = message
             record.args = ()
 
         if record.exc_info is not None:
             exception_text = "".join(traceback.format_exception(*record.exc_info))
-            if any(secret in exception_text for secret in self.secrets):
-                for secret in self.secrets:
-                    exception_text = exception_text.replace(secret, "[REDACTED]")
+            safe_exception_text = sanitize_diagnostic_text(
+                exception_text, *self.secrets
+            )
+            if exception_text != safe_exception_text:
                 record.exc_info = None
-                record.exc_text = exception_text
+                record.exc_text = safe_exception_text
+
+        if record.exc_text is not None:
+            record.exc_text = sanitize_diagnostic_text(
+                record.exc_text, *self.secrets
+            )
 
         return True
 
@@ -116,7 +140,7 @@ async def handle_update_error(event: ErrorEvent) -> bool:
     return True
 
 
-def build_dispatcher(openai_client: AsyncOpenAI) -> Dispatcher:
+def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
     """Register Smart Uz handlers and keep temporary history per user and chat."""
     dispatcher = Dispatcher()
     active_chats: set[tuple[int, int]] = set()
@@ -196,8 +220,32 @@ def build_dispatcher(openai_client: AsyncOpenAI) -> Dispatcher:
             if not answer or not answer.strip():
                 raise ValueError("OpenAI returned an empty response")
         except Exception as error:
-            logger.error("AI request failed (%s).", type(error).__name__)
-            await message.answer(AI_ERROR_MESSAGE, reply_markup=home_keyboard())
+            status = getattr(error, "status_code", None)
+            safe_message = sanitize_diagnostic_text(str(error), *secrets)
+            logger.error(
+                "OpenAI request failed: type=%s status=%s message=%s",
+                type(error).__name__,
+                status if status is not None else "unknown",
+                safe_message or "No diagnostic message provided.",
+            )
+            if status == 401:
+                user_error = (
+                    "OpenAI API kaliti rad etildi (401). Administrator "
+                    "Replit Secrets’dagi OPENAI_API_KEY qiymatini tekshirishi kerak."
+                )
+            elif status == 404:
+                user_error = (
+                    "Tanlangan OpenAI modeli topilmadi (404). "
+                    "Administrator model sozlamasini tekshirishi kerak."
+                )
+            elif status == 429:
+                user_error = (
+                    "AI xizmati hozir band yoki limitga yetdi. "
+                    "Iltimos, birozdan so‘ng qayta urinib ko‘ring."
+                )
+            else:
+                user_error = AI_ERROR_MESSAGE
+            await message.answer(user_error, reply_markup=home_keyboard())
             return
 
         answer = answer.strip()
@@ -229,7 +277,14 @@ def configure_logging(*secrets: str) -> None:
     for handler in logging.getLogger().handlers:
         handler.addFilter(redaction_filter)
 
-    for logger_name in ("aiogram.client", "aiohttp", "httpx", "httpcore", "openai"):
+    for logger_name in (
+        "aiogram.client",
+        "aiohttp",
+        "httpx",
+        "httpx2",
+        "httpcore",
+        "openai",
+    ):
         logging.getLogger(logger_name).setLevel(logging.CRITICAL + 1)
 
 
@@ -240,7 +295,9 @@ async def run_bot(telegram_token: str, openai_api_key: str) -> None:
         timeout=30.0,
         max_retries=2,
     ) as openai_client:
-        dispatcher = build_dispatcher(openai_client)
+        dispatcher = build_dispatcher(
+            openai_client, telegram_token, openai_api_key
+        )
         bot = Bot(token=telegram_token)
         await dispatcher.start_polling(bot)
 
