@@ -1,0 +1,1 @@
+- [Telegram token logging](telegram-token-logs.md) — Bot API request URLs carry the token; redact them and suppress routine HTTP logs.
