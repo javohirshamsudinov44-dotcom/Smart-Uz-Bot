@@ -1,1 +1,1 @@
-- [Telegram token logging](telegram-token-logs.md) — Bot API request URLs carry the token; redact them and suppress routine HTTP logs.
+- [Smart Uz API logging](telegram-token-logs.md) — Redact Telegram/OpenAI secrets and suppress HTTP request logs.

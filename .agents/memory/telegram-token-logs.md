@@ -1,10 +1,10 @@
 ---
-name: Telegram token logging
-description: Telegram Bot API request URLs include bot tokens; covers safe logging for polling bots.
+name: Smart Uz API logging
+description: Safe logging for Telegram and OpenAI credentials used by the polling bot.
 ---
 
-For polling bots, do not log Telegram HTTP request URLs: the bot token appears in the URL path. Redact the token and suppress routine HTTP client request logs.
+Do not log raw Telegram or OpenAI request details: Telegram Bot API URLs contain the bot token, and HTTP request logs can expose endpoint URLs or credential-bearing details. Redact both runtime secrets from messages and tracebacks.
 
 **Why:** Startup logging exposed the bot token, requiring revocation; routine HTTP request logs are secret-bearing.
 
-**How to apply:** Keep token-aware handler redaction and disable HTTPX info logs whenever configuring Python Telegram bot logging.
+**How to apply:** Keep token/key-aware handler redaction and suppress HTTP client request logs whenever configuring the Smart Uz bot.

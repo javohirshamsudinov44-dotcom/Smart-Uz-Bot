@@ -11,7 +11,7 @@ An independent Python Telegram bot starter alongside the workspace's existing AP
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required secret: `TELEGRAM_BOT_TOKEN` — Telegram token from BotFather
+- Required secrets: `TELEGRAM_BOT_TOKEN` (Telegram) and `OPENAI_API_KEY` (AI chat)
 - Required env for the API server: `DATABASE_URL` — Postgres connection string
 
 ## Stack
@@ -22,7 +22,7 @@ An independent Python Telegram bot starter alongside the workspace's existing AP
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
-- Python 3.13 with `python-telegram-bot` 22.x
+- Python 3.13 with aiogram 3 and the OpenAI Python SDK
 - Telegram updates: long polling
 
 ## Where things live
@@ -36,12 +36,13 @@ An independent Python Telegram bot starter alongside the workspace's existing AP
 
 ## Architecture decisions
 
-- Keep the Telegram token in Replit Secrets; application code reads it from the environment.
+- Keep Telegram and OpenAI credentials in Replit Secrets; application code reads them from the environment.
 - Use long polling so the starter does not need a public webhook endpoint.
+- Redact credentials and suppress HTTP client request logs to prevent URLs or secrets leaking.
 
 ## Product
 
-- `/start` and `/help` show the Uzbek Smart Uz main menu. Menu selections receive a preparation message and a home button.
+- `/start` and `/help` show the Uzbek Smart Uz main menu. AI chat uses OpenAI; other menu selections receive a preparation message and home button.
 
 ## User preferences
 

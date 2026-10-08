@@ -1,7 +1,7 @@
 # Python Telegram Bot
 
-A Python Telegram bot for Smart Uz, built with `python-telegram-bot`. It uses
-long polling and reads its token from the `TELEGRAM_BOT_TOKEN` Replit Secret.
+A Python Telegram bot for Smart Uz, built with aiogram 3. It uses long polling
+and reads `TELEGRAM_BOT_TOKEN` and `OPENAI_API_KEY` from Replit Secrets.
 
 ## Run it
 
@@ -23,8 +23,10 @@ uv run python main.py
 ## Main menu
 
 - `/start` and `/help` — show the Uzbek Smart Uz menu
-- Nine emoji-labeled options — each responds with a friendly preparation notice
+- `💬 AI bilan suhbat` — sends follow-up text to OpenAI with Uzbek as the default response language
+- Other menu options — respond with a friendly preparation notice
 - `🏠 Bosh menyu` — return from an option screen to the main menu
 
-Edit `telegram_bot/bot.py` to connect menu options to real services. Do not
-commit bot tokens or paste them into chat; keep them in Replit Secrets.
+AI conversation history is kept temporarily per user and chat, and cleared
+when they return to the main menu. Edit `telegram_bot/bot.py` to connect other
+menu options. Never commit credentials or print them in logs.
