@@ -14,7 +14,9 @@ from openai import AsyncOpenAI
 logger = logging.getLogger(__name__)
 
 HOME_BUTTON = "🏠 Bosh menyu"
+PROFILE_BACK_BUTTON = "⬅️ Orqaga"
 AI_CHAT_BUTTON = "💬 AI bilan suhbat"
+PROFILE_BUTTON = "👤 Profilim"
 MENU_OPTIONS = (
     AI_CHAT_BUTTON,
     "✍️ Matn yozish",
@@ -24,7 +26,7 @@ MENU_OPTIONS = (
     "🎨 AI rasm yaratish",
     "💡 G‘oya va maslahatlar",
     "⭐ Premium",
-    "👤 Profilim",
+    PROFILE_BUTTON,
 )
 MENU_TEXT = "🤖 Smart Uz\nSizning aqlli AI yordamchingiz!"
 PREPARING_TEXT = (
@@ -123,6 +125,49 @@ def home_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def profile_keyboard() -> ReplyKeyboardMarkup:
+    """Show the profile-only back button."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=PROFILE_BACK_BUTTON)]],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Bosh menyuga qayting",
+    )
+
+
+def profile_text(user: object | None) -> str:
+    """Format Telegram identity and clearly mark unavailable account metrics."""
+    if user is None:
+        return (
+            "👤 Profilim\n\n"
+            "Ism: Mavjud emas\n"
+            "Telegram ID: Mavjud emas\n"
+            "Premium holati: Free\n"
+            "Bugungi AI foydalanish: Kuzatilmaydi\n"
+            "Kunlik AI limiti: Belgilanmagan"
+        )
+
+    first_name = getattr(user, "first_name", None) or "Mavjud emas"
+    user_id = getattr(user, "id", None)
+    username = getattr(user, "username", None)
+    lines = [
+        "👤 Profilim",
+        "",
+        f"Ism: {first_name}",
+    ]
+    if username:
+        lines.append(f"Telegram username: @{username}")
+    lines.extend(
+        [
+            f"Telegram ID: {user_id if user_id is not None else 'Mavjud emas'}",
+            "Premium holati: Free",
+            "Bugungi AI foydalanish: Kuzatilmaydi",
+            "Kunlik AI limiti: Belgilanmagan",
+        ]
+    )
+    return "\n".join(lines)
+
+
 async def send_long_message(
     message: Message, text: str, reply_markup: ReplyKeyboardMarkup
 ) -> None:
@@ -168,6 +213,10 @@ def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
             await show_main_menu(message)
             return
 
+        if text == PROFILE_BACK_BUTTON:
+            await show_main_menu(message)
+            return
+
         if text in MENU_OPTIONS:
             if text == AI_CHAT_BUTTON:
                 active_chats.add(key)
@@ -176,6 +225,13 @@ def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
                     "Savolingizni yuboring — odatda o‘zbek tilida javob beraman. "
                     "Bosh menyuga qaytish uchun 🏠 Bosh menyu tugmasini bosing.",
                     reply_markup=home_keyboard(),
+                )
+            elif text == PROFILE_BUTTON:
+                active_chats.discard(key)
+                histories.pop(key, None)
+                await message.answer(
+                    profile_text(message.from_user),
+                    reply_markup=profile_keyboard(),
                 )
             else:
                 active_chats.discard(key)
