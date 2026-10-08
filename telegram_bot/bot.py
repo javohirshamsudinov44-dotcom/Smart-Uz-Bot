@@ -4,7 +4,7 @@ import logging
 import os
 import traceback
 
-from telegram import Update
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -14,6 +14,24 @@ from telegram.ext import (
 )
 
 logger = logging.getLogger(__name__)
+
+HOME_BUTTON = "🏠 Bosh menyu"
+MENU_OPTIONS = (
+    "💬 AI bilan suhbat",
+    "✍️ Matn yozish",
+    "🌐 Tarjima",
+    "📄 CV / Rezyume",
+    "📸 Rasm tahlili",
+    "🎨 AI rasm yaratish",
+    "💡 G‘oya va maslahatlar",
+    "⭐ Premium",
+    "👤 Profilim",
+)
+MENU_TEXT = "🤖 Smart Uz\nSizning aqlli AI yordamchingiz!"
+PREPARING_TEXT = (
+    "Bu funksiya hozir tayyorlanmoqda. "
+    "Tez orada foydalanishingiz mumkin!"
+)
 
 
 class TokenRedactionFilter(logging.Filter):
@@ -38,70 +56,83 @@ class TokenRedactionFilter(logging.Filter):
         return True
 
 
-async def start(
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
+    """Build the compact two-column Smart Uz main menu."""
+    rows = [
+        [KeyboardButton(MENU_OPTIONS[index]), KeyboardButton(MENU_OPTIONS[index + 1])]
+        for index in range(0, len(MENU_OPTIONS) - 1, 2)
+    ]
+    rows.append([KeyboardButton(MENU_OPTIONS[-1])])
+    return ReplyKeyboardMarkup(
+        rows,
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Menyudan birini tanlang",
+    )
+
+
+def home_keyboard() -> ReplyKeyboardMarkup:
+    """Show a single button for returning from a feature response."""
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(HOME_BUTTON)]],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Bosh menyuga qayting",
+    )
+
+
+async def show_main_menu(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Welcome a user and point them to the available commands."""
+    """Send the Smart Uz welcome text and main menu."""
     del context
     message = update.effective_message
     if message is not None:
-        first_name = update.effective_user.first_name if update.effective_user else "there"
-        await message.reply_text(
-            f"Hi, {first_name}! I’m your Telegram bot starter. "
-            "Send /help to see what I can do."
-        )
+        await message.reply_text(MENU_TEXT, reply_markup=main_menu_keyboard())
 
 
 async def help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """List the starter bot's commands."""
+    """Bring the main menu back when a user asks for help."""
+    await show_main_menu(update, context)
+
+
+async def handle_text(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Respond to each menu button and keep a clear route home."""
+    del context
+    message = update.effective_message
+    if message is None or message.text is None:
+        return
+
+    selection = message.text
+    if selection == HOME_BUTTON:
+        await message.reply_text(MENU_TEXT, reply_markup=main_menu_keyboard())
+    elif selection in MENU_OPTIONS:
+        await message.reply_text(
+            f"{selection}\n\n{PREPARING_TEXT}",
+            reply_markup=home_keyboard(),
+        )
+    else:
+        await message.reply_text(
+            "Iltimos, quyidagi menyudan bo‘limni tanlang.",
+            reply_markup=main_menu_keyboard(),
+        )
+
+
+async def unknown_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Guide unsupported commands back to the menu."""
     del context
     message = update.effective_message
     if message is not None:
         await message.reply_text(
-            "Available commands:\n"
-            "/start — welcome message\n"
-            "/help — show this help\n"
-            "/ping — check that I’m online\n"
-            "/echo <text> — repeat text"
+            "Buyruq topilmadi. Asosiy menyudan bo‘limni tanlang.",
+            reply_markup=main_menu_keyboard(),
         )
-
-
-async def ping(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Confirm that the bot is responding."""
-    del context
-    message = update.effective_message
-    if message is not None:
-        await message.reply_text("Pong!")
-
-
-async def echo_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Repeat the text provided to /echo."""
-    message = update.effective_message
-    if message is None:
-        return
-
-    text = " ".join(context.args).strip()
-    if not text:
-        await message.reply_text("Usage: /echo <text>")
-        return
-
-    await message.reply_text(text)
-
-
-async def echo_text(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Repeat ordinary text messages as a starter example."""
-    del context
-    message = update.effective_message
-    if message is not None and message.text is not None:
-        await message.reply_text(message.text)
 
 
 async def handle_error(
@@ -114,15 +145,15 @@ async def handle_error(
 
 
 def build_application(token: str) -> Application:
-    """Create the bot application and register its handlers."""
+    """Create the bot application and register menu handlers."""
     application = Application.builder().token(token).build()
-    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("start", show_main_menu))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("ping", ping))
-    application.add_handler(CommandHandler("echo", echo_command))
-    application.add_handler(MessageHandler(filters.COMMAND, help_command))
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, echo_text)
+        MessageHandler(filters.COMMAND, unknown_command)
+    )
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
     )
     application.add_error_handler(handle_error)
     return application

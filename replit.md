@@ -41,7 +41,7 @@ An independent Python Telegram bot starter alongside the workspace's existing AP
 
 ## Product
 
-- Responds to `/start`, `/help`, `/ping`, and `/echo`; ordinary text is echoed as a simple example.
+- `/start` and `/help` show the Uzbek Smart Uz main menu. Menu selections receive a preparation message and a home button.
 
 ## User preferences
 
