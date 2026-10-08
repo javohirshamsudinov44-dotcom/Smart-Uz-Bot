@@ -41,7 +41,7 @@ AI_ERROR_MESSAGE = (
     "Kechirasiz, hozir AI bilan bog‘lanishda muammo yuz berdi. "
     "Iltimos, birozdan so‘ng qayta urinib ko‘ring."
 )
-OPENAI_MODEL = "gpt-5.4-mini"
+OPENAI_MODEL = "gpt-5-mini"
 MAX_HISTORY_MESSAGES = 20
 MAX_TELEGRAM_MESSAGE_LENGTH = 4000
 _URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
@@ -201,22 +201,19 @@ def build_dispatcher(openai_client: AsyncOpenAI, *secrets: str) -> Dispatcher:
             return
 
         history = histories.setdefault(key, [])
-        request_messages = [
-            {"role": "system", "content": AI_SYSTEM_PROMPT},
-            *history,
-            {"role": "user", "content": text},
-        ]
+        request_input = [*history, {"role": "user", "content": text}]
         try:
             await message.bot.send_chat_action(
                 chat_id=message.chat.id,
                 action=ChatAction.TYPING,
             )
-            completion = await openai_client.chat.completions.create(
+            response = await openai_client.responses.create(
                 model=OPENAI_MODEL,
-                messages=request_messages,  # type: ignore[arg-type]
-                max_completion_tokens=8192,
+                instructions=AI_SYSTEM_PROMPT,
+                input=request_input,  # type: ignore[arg-type]
+                max_output_tokens=8192,
             )
-            answer = completion.choices[0].message.content
+            answer = response.output_text
             if not answer or not answer.strip():
                 raise ValueError("OpenAI returned an empty response")
         except Exception as error:
