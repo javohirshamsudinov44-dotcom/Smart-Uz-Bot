@@ -1,0 +1,1 @@
+"""Starter Telegram bot package."""
